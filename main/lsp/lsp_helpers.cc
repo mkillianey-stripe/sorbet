@@ -142,6 +142,58 @@ string methodDetail(const core::GlobalState &gs, core::SymbolRef method, core::T
     }
 }
 
+string identity(const string &foo) {
+    return foo;
+}
+
+string methodDefinition(const core::GlobalState &gs, core::SymbolRef method, core::TypePtr receiver,
+                        core::TypePtr retType, const unique_ptr<core::TypeConstraint> &constraint) {
+    ENFORCE(method.exists());
+    // handle this case anyways so that we don't crash in prod when this method is mis-used
+    if (!method.exists()) {
+        return "";
+    }
+    auto methodData = method.data(gs);
+
+    auto methodNameRef = methodData->name;
+    ENFORCE(methodNameRef.exists());
+    string selfMethodPrefix = "";
+    string shortMethodName = "???";
+    if (methodNameRef.exists()) {
+        if (methodData->owner.exists() && methodData->owner.data(gs)->isClassOrModule() &&
+            methodData->owner.data(gs)->attachedClass(gs).exists()) {
+            selfMethodPrefix = "self.";
+        }
+        shortMethodName = methodNameRef.data(gs)->shortName(gs);
+    }
+    vector<string> arguments;
+    for (auto &argSym : methodData->arguments()) {
+        // Don't display synthetic arguments (like blk).
+        if (argSym.isSyntheticBlockArgument()) {
+            continue;
+        }
+        string prefix = "";
+        string suffix = "";
+        if (argSym.flags.isKeyword) {
+            if (argSym.flags.isDefault) {
+                suffix = ":…"; // optional keyword (has a default value)
+            } else {
+                suffix = ":"; // required keyword
+            }
+        } else if (argSym.flags.isRepeated) {
+            prefix = "*";
+        } else if (argSym.flags.isBlock) {
+            prefix = "&";
+        }
+        arguments.emplace_back(fmt::format("{}{}{}", prefix, argSym.argumentName(gs), suffix));
+    }
+    string argList = "";
+    if (!arguments.empty()) {
+        argList = fmt::format("({})", fmt::map_join(arguments, ", ", &identity));
+    }
+    return fmt::format("def {}{}{}", selfMethodPrefix, shortMethodName, argList);
+}
+
 core::TypePtr getResultType(const core::GlobalState &gs, core::TypePtr type, core::SymbolRef inWhat,
                             core::TypePtr receiver, const unique_ptr<core::TypeConstraint> &constr) {
     core::Context ctx(gs, inWhat);
